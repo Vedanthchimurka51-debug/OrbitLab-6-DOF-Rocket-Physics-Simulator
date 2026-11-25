@@ -25,12 +25,17 @@ interface RocketViewportProps {
   onTargetChanged: (x: number, z: number) => void;
   onWebglError: (msg: string) => void;
   onCanvasReady?: (canvas: HTMLCanvasElement | null) => void;
+  frameRocketToken?: number;
 }
 
 const _vec3A = new THREE.Vector3();
 const _vec3B = new THREE.Vector3();
 const _vec3C = new THREE.Vector3();
+const _forwardVec = new THREE.Vector3();
+const _rightVec = new THREE.Vector3();
+const _moveVec = new THREE.Vector3();
 const _quatA = new THREE.Quaternion();
+const _euler = new THREE.Euler(0, 0, 0, 'YXZ');
 const _plane = new THREE.Plane();
 const _ndc = new THREE.Vector2();
 
@@ -48,6 +53,7 @@ export function RocketViewport({
   onTargetChanged,
   onWebglError,
   onCanvasReady,
+  frameRocketToken = 0,
 }: RocketViewportProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const onCanvasReadyRef = useRef(onCanvasReady);
@@ -62,6 +68,7 @@ export function RocketViewport({
     soundEnabled,
     interactionMode,
     cameraPreset,
+    frameRocketToken,
     onCameraPresetRelease,
     onTelemetry,
     onTargetChanged,
@@ -74,6 +81,7 @@ export function RocketViewport({
     soundEnabled,
     interactionMode,
     cameraPreset,
+    frameRocketToken,
     onCameraPresetRelease,
     onTelemetry,
     onTargetChanged,
@@ -118,10 +126,12 @@ export function RocketViewport({
     renderer.setSize(container.clientWidth || window.innerWidth, container.clientHeight || window.innerHeight);
 
     const canvas = renderer.domElement;
+    canvas.tabIndex = 0;
     canvas.style.display = 'block';
     canvas.style.width = '100%';
     canvas.style.height = '100%';
     canvas.style.touchAction = 'none';
+    canvas.style.outline = 'none';
     container.appendChild(canvas);
     onCanvasReadyRef.current?.(canvas);
 
@@ -155,9 +165,18 @@ export function RocketViewport({
     controls.target.set(0, 32, 0);
     controls.update();
 
-    // Cancel automatic camera preset transition when user interacts manually
+    // Release Pad/Side presets cleanly after user finishes orbiting
+    let isOrbitDragging = false;
     controls.addEventListener('start', () => {
-      if (propsRef.current.cameraPreset !== 'free' && propsRef.current.cameraPreset !== 'follow') {
+      isOrbitDragging = true;
+    });
+    controls.addEventListener('end', () => {
+      isOrbitDragging = false;
+      if (
+        propsRef.current.interactionMode === 'orbit' &&
+        propsRef.current.cameraPreset !== 'free' &&
+        propsRef.current.cameraPreset !== 'follow'
+      ) {
         propsRef.current.onCameraPresetRelease();
       }
     });
@@ -199,29 +218,116 @@ export function RocketViewport({
       renderer.compile(scene, camera);
     }
 
-    // Raycaster setup (layer 1 for simplified rocket proxy, layer 0 for desert pad)
+    // Raycaster setup (layer 1 for simplified rocket proxy, layer 0 for desert pad & rocket mesh fallback)
     const rocketRaycaster = new THREE.Raycaster();
     rocketRaycaster.layers.set(1);
+    const rocketMeshRaycaster = new THREE.Raycaster();
+    rocketMeshRaycaster.layers.set(0);
     const groundRaycaster = new THREE.Raycaster();
     groundRaycaster.layers.set(0);
 
+    // Free-cam keyboard & orientation state
+    const pressedKeys = new Set<string>();
+    let prevCamPreset: CameraPreset = propsRef.current.cameraPreset;
+    let prevFrameToken = propsRef.current.frameRocketToken;
+    _euler.setFromQuaternion(camera.quaternion, 'YXZ');
+    let freeYaw = _euler.y;
+    let freePitch = _euler.x;
+
     // Active pointer drag state
     let activePointerId: number | null = null;
-    let dragKind: 'grab' | 'poke' | null = null;
+    let dragKind: 'grab' | 'poke' | 'freeLook' | null = null;
+    let lastLookX = 0;
+    let lastLookY = 0;
     const grabOffset = new THREE.Vector3();
     const pokeHitWorld = new THREE.Vector3();
     const pokeHitLocal = new THREE.Vector3();
     const pokeCurrentWorld = new THREE.Vector3();
 
+    const safeSetCapture = (pointerId: number) => {
+      try {
+        canvas.setPointerCapture(pointerId);
+      } catch {
+        // Ignore if pointer capture is unavailable in current browser/iframe context
+      }
+    };
+
+    const safeReleaseCapture = (pointerId: number) => {
+      try {
+        if (canvas.hasPointerCapture(pointerId)) {
+          canvas.releasePointerCapture(pointerId);
+        }
+      } catch {
+        // Ignore if already released
+      }
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        e.target instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+      if (propsRef.current.cameraPreset === 'free' && e.code === 'Space') {
+        e.preventDefault();
+        if (document.activeElement instanceof HTMLButtonElement) {
+          document.activeElement.blur();
+        }
+      }
+      pressedKeys.add(e.code);
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (propsRef.current.cameraPreset === 'free' && e.code === 'Space') {
+        e.preventDefault();
+      }
+      pressedKeys.delete(e.code);
+    };
+
+    const onWindowBlur = () => {
+      pressedKeys.clear();
+      if (dragKind === 'grab') {
+        simulatorRef.current.setGrabbed(false);
+      } else if (dragKind === 'poke') {
+        desert.forceArrows.previewPoke.visible = false;
+      }
+      if (activePointerId !== null) {
+        safeReleaseCapture(activePointerId);
+      }
+      activePointerId = null;
+      dragKind = null;
+      isOrbitDragging = false;
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', onWindowBlur);
+
     const updateNdc = (clientX: number, clientY: number) => {
       const rect = canvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
       _ndc.x = ((clientX - rect.left) / rect.width) * 2 - 1;
       _ndc.y = -((clientY - rect.top) / rect.height) * 2 + 1;
     };
 
     const onPointerDown = (e: PointerEvent) => {
+      canvas.focus({ preventScroll: true });
       const mode = propsRef.current.interactionMode;
-      if (mode === 'orbit') return;
+      const camPreset = propsRef.current.cameraPreset;
+
+      // In Free Cam + Camera Orbit mode, dragging rotates the free camera look angle
+      if (mode === 'orbit') {
+        if (camPreset === 'free') {
+          activePointerId = e.pointerId;
+          dragKind = 'freeLook';
+          lastLookX = e.clientX;
+          lastLookY = e.clientY;
+          safeSetCapture(e.pointerId);
+        }
+        return;
+      }
 
       updateNdc(e.clientX, e.clientY);
 
@@ -239,13 +345,19 @@ export function RocketViewport({
         return;
       }
 
+      // Strictly Grab-only / Poke-only raycast against the rocket
       if (mode === 'grab' || mode === 'poke') {
+        rocketMesh.root.updateMatrixWorld(true);
         rocketRaycaster.setFromCamera(_ndc, camera);
-        const hits = rocketRaycaster.intersectObject(rocketMesh.raycastProxy, false);
+        let hits = rocketRaycaster.intersectObject(rocketMesh.raycastProxy, false);
+        if (hits.length === 0) {
+          rocketMeshRaycaster.setFromCamera(_ndc, camera);
+          hits = rocketMeshRaycaster.intersectObject(rocketMesh.root, true);
+        }
         if (hits.length === 0) return;
 
         activePointerId = e.pointerId;
-        canvas.setPointerCapture(e.pointerId);
+        safeSetCapture(e.pointerId);
         controls.enabled = false;
 
         const sim = simulatorRef.current;
@@ -274,6 +386,20 @@ export function RocketViewport({
 
     const onPointerMove = (e: PointerEvent) => {
       if (activePointerId !== e.pointerId || !dragKind) return;
+
+      if (dragKind === 'freeLook') {
+        // Strictly ignore camera rotation if user switched to Grab Rocket
+        if (propsRef.current.interactionMode !== 'orbit') return;
+        const dx = e.clientX - lastLookX;
+        const dy = e.clientY - lastLookY;
+        lastLookX = e.clientX;
+        lastLookY = e.clientY;
+        freeYaw -= dx * 0.0045;
+        freePitch = THREE.MathUtils.clamp(freePitch - dy * 0.0045, -1.48, 1.48);
+        camera.quaternion.setFromEuler(_euler.set(freePitch, freeYaw, 0, 'YXZ'));
+        return;
+      }
+
       updateNdc(e.clientX, e.clientY);
       rocketRaycaster.setFromCamera(_ndc, camera);
 
@@ -304,9 +430,7 @@ export function RocketViewport({
 
     const onPointerUp = (e: PointerEvent) => {
       if (activePointerId !== e.pointerId) return;
-      if (canvas.hasPointerCapture(e.pointerId)) {
-        canvas.releasePointerCapture(e.pointerId);
-      }
+      safeReleaseCapture(e.pointerId);
 
       if (dragKind === 'grab') {
         simulatorRef.current.setGrabbed(false);
@@ -339,13 +463,30 @@ export function RocketViewport({
 
       activePointerId = null;
       dragKind = null;
-      controls.enabled = propsRef.current.interactionMode === 'orbit';
+      controls.enabled =
+        propsRef.current.interactionMode === 'orbit' && propsRef.current.cameraPreset !== 'free';
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      if (
+        propsRef.current.cameraPreset === 'free' &&
+        propsRef.current.interactionMode === 'orbit'
+      ) {
+        e.preventDefault();
+        const step = THREE.MathUtils.clamp(-e.deltaY * 0.05, -25, 25);
+        camera.getWorldDirection(_forwardVec);
+        camera.position.addScaledVector(_forwardVec, step);
+        camera.position.x = THREE.MathUtils.clamp(camera.position.x, -450, 450);
+        camera.position.y = THREE.MathUtils.clamp(camera.position.y, 1.2, 600);
+        camera.position.z = THREE.MathUtils.clamp(camera.position.z, -450, 450);
+      }
     };
 
     canvas.addEventListener('pointerdown', onPointerDown);
     canvas.addEventListener('pointermove', onPointerMove);
     canvas.addEventListener('pointerup', onPointerUp);
     canvas.addEventListener('pointercancel', onPointerUp);
+    canvas.addEventListener('wheel', onWheel, { passive: false });
 
     // Resize observer
     const handleResize = () => {
@@ -398,14 +539,41 @@ export function RocketViewport({
         showTrajectory: trajOn,
         interactionMode: iMode,
         cameraPreset: camPreset,
+        frameRocketToken: frameToken,
       } = propsRef.current;
 
-      // Only allow OrbitControls dragging when in Orbit mode and not actively dragging rocket
-      if (!dragKind) {
-        controls.enabled = iMode === 'orbit';
+      const sim = simulatorRef.current;
+
+      // Frame rocket cleanly if requested (e.g. Tour Chapter 5)
+      if (frameToken !== prevFrameToken) {
+        prevFrameToken = frameToken;
+        const p = sim.state.position;
+        camera.position.set(p.x + 28, Math.max(12, p.y + 6), p.z + 36);
+        camera.lookAt(p.x, p.y, p.z);
+        _euler.setFromQuaternion(camera.quaternion, 'YXZ');
+        freeYaw = _euler.y;
+        freePitch = THREE.MathUtils.clamp(_euler.x, -1.48, 1.48);
+        controls.target.set(p.x, p.y, p.z);
       }
 
-      const sim = simulatorRef.current;
+      // Sync free-cam angles or OrbitControls target when switching presets
+      if (camPreset !== prevCamPreset) {
+        if (camPreset === 'free') {
+          _euler.setFromQuaternion(camera.quaternion, 'YXZ');
+          freeYaw = _euler.y;
+          freePitch = THREE.MathUtils.clamp(_euler.x, -1.48, 1.48);
+        } else if (prevCamPreset === 'free') {
+          camera.getWorldDirection(_forwardVec);
+          controls.target.copy(camera.position).addScaledVector(_forwardVec, 32);
+        }
+        prevCamPreset = camPreset;
+      }
+
+      // Strictly enforce Grab-only mode (never enable OrbitControls while in grab/poke/target or free cam)
+      if (!dragKind) {
+        controls.enabled = iMode === 'orbit' && camPreset !== 'free';
+      }
+
       if (playing) {
         sim.advance(rawDt * speed);
       }
@@ -469,29 +637,57 @@ export function RocketViewport({
         st.throttle
       );
 
-      // Smooth damped camera preset tracking
-      if (camPreset === 'follow') {
-        const targetY = Math.max(8, st.position.y);
-        controls.target.x = THREE.MathUtils.damp(controls.target.x, st.position.x, 5.5, rawDt);
-        controls.target.y = THREE.MathUtils.damp(controls.target.y, targetY, 5.5, rawDt);
-        controls.target.z = THREE.MathUtils.damp(controls.target.z, st.position.z, 5.5, rawDt);
-      } else if (camPreset === 'pad') {
-        controls.target.x = THREE.MathUtils.damp(controls.target.x, sim.config.targetPadX, 5, rawDt);
-        controls.target.y = THREE.MathUtils.damp(controls.target.y, 10, 5, rawDt);
-        controls.target.z = THREE.MathUtils.damp(controls.target.z, sim.config.targetPadZ, 5, rawDt);
-        camera.position.x = THREE.MathUtils.damp(camera.position.x, sim.config.targetPadX + 34, 4, rawDt);
-        camera.position.y = THREE.MathUtils.damp(camera.position.y, 18, 4, rawDt);
-        camera.position.z = THREE.MathUtils.damp(camera.position.z, sim.config.targetPadZ + 40, 4, rawDt);
-      } else if (camPreset === 'side') {
-        controls.target.x = THREE.MathUtils.damp(controls.target.x, st.position.x * 0.5, 4.5, rawDt);
-        controls.target.y = THREE.MathUtils.damp(controls.target.y, Math.max(24, st.position.y * 0.6), 4.5, rawDt);
-        controls.target.z = THREE.MathUtils.damp(controls.target.z, 0, 4.5, rawDt);
-        camera.position.x = THREE.MathUtils.damp(camera.position.x, st.position.x * 0.5, 4, rawDt);
-        camera.position.y = THREE.MathUtils.damp(camera.position.y, Math.max(36, st.position.y * 0.65), 4, rawDt);
-        camera.position.z = THREE.MathUtils.damp(camera.position.z, 135, 4, rawDt);
+      // Camera movement: Free-Cam (WASD + Space/Shift + Mouse Rotate) vs Preset Tracking
+      if (camPreset === 'free') {
+        camera.quaternion.setFromEuler(_euler.set(freePitch, freeYaw, 0, 'YXZ'));
+        camera.getWorldDirection(_forwardVec).normalize();
+        _rightVec.crossVectors(_forwardVec, camera.up).normalize();
+
+        _moveVec.set(0, 0, 0);
+        if (pressedKeys.has('KeyW') || pressedKeys.has('ArrowUp')) _moveVec.add(_forwardVec);
+        if (pressedKeys.has('KeyS') || pressedKeys.has('ArrowDown')) _moveVec.sub(_forwardVec);
+        if (pressedKeys.has('KeyD') || pressedKeys.has('ArrowRight')) _moveVec.add(_rightVec);
+        if (pressedKeys.has('KeyA') || pressedKeys.has('ArrowLeft')) _moveVec.sub(_rightVec);
+        if (pressedKeys.has('Space')) _moveVec.y += 1;
+        if (pressedKeys.has('ShiftLeft') || pressedKeys.has('ShiftRight')) _moveVec.y -= 1;
+
+        if (_moveVec.lengthSq() > 0) {
+          const flySpeed = THREE.MathUtils.clamp(28 + camera.position.y * 0.35, 32, 110);
+          _moveVec.normalize().multiplyScalar(flySpeed * rawDt);
+          camera.position.add(_moveVec);
+          camera.position.x = THREE.MathUtils.clamp(camera.position.x, -450, 450);
+          camera.position.y = THREE.MathUtils.clamp(camera.position.y, 1.2, 600);
+          camera.position.z = THREE.MathUtils.clamp(camera.position.z, -450, 450);
+        }
+        controls.target.copy(camera.position).addScaledVector(_forwardVec, 25);
+      } else {
+        if (camPreset === 'follow') {
+          const targetY = Math.max(8, st.position.y);
+          controls.target.x = THREE.MathUtils.damp(controls.target.x, st.position.x, 5.5, rawDt);
+          controls.target.y = THREE.MathUtils.damp(controls.target.y, targetY, 5.5, rawDt);
+          controls.target.z = THREE.MathUtils.damp(controls.target.z, st.position.z, 5.5, rawDt);
+        } else if (camPreset === 'pad') {
+          controls.target.x = THREE.MathUtils.damp(controls.target.x, sim.config.targetPadX, 5, rawDt);
+          controls.target.y = THREE.MathUtils.damp(controls.target.y, 10, 5, rawDt);
+          controls.target.z = THREE.MathUtils.damp(controls.target.z, sim.config.targetPadZ, 5, rawDt);
+          if (!isOrbitDragging) {
+            camera.position.x = THREE.MathUtils.damp(camera.position.x, sim.config.targetPadX + 34, 4, rawDt);
+            camera.position.y = THREE.MathUtils.damp(camera.position.y, 18, 4, rawDt);
+            camera.position.z = THREE.MathUtils.damp(camera.position.z, sim.config.targetPadZ + 40, 4, rawDt);
+          }
+        } else if (camPreset === 'side') {
+          controls.target.x = THREE.MathUtils.damp(controls.target.x, st.position.x * 0.5, 4.5, rawDt);
+          controls.target.y = THREE.MathUtils.damp(controls.target.y, Math.max(24, st.position.y * 0.6), 4.5, rawDt);
+          controls.target.z = THREE.MathUtils.damp(controls.target.z, 0, 4.5, rawDt);
+          if (!isOrbitDragging) {
+            camera.position.x = THREE.MathUtils.damp(camera.position.x, st.position.x * 0.5, 4, rawDt);
+            camera.position.y = THREE.MathUtils.damp(camera.position.y, Math.max(36, st.position.y * 0.65), 4, rawDt);
+            camera.position.z = THREE.MathUtils.damp(camera.position.z, 135, 4, rawDt);
+          }
+        }
+        controls.update();
       }
 
-      controls.update();
       crashEffects.getCameraShakeOffset(_vec3C);
       camera.position.add(_vec3C);
       renderer.render(scene, camera);
@@ -523,11 +719,15 @@ export function RocketViewport({
       cancelAnimationFrame(frameId);
       clearTimeout(frameId);
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('blur', onWindowBlur);
       canvas.removeEventListener('webglcontextlost', handleContextLost);
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('pointermove', onPointerMove);
       canvas.removeEventListener('pointerup', onPointerUp);
       canvas.removeEventListener('pointercancel', onPointerUp);
+      canvas.removeEventListener('wheel', onWheel);
       controls.dispose();
       crashEffects.dispose();
       rocketMesh.dispose();

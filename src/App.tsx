@@ -28,10 +28,13 @@ export default function App() {
   const [timeScale, setTimeScale] = useState(1);
   const [interactionMode, setInteractionMode] = useState<InteractionMode>('orbit');
   const [cameraPreset, setCameraPreset] = useState<CameraPreset>('follow');
+  const cameraPresetRef = useRef<CameraPreset>('follow');
+  cameraPresetRef.current = cameraPreset;
   const [showVectors, setShowVectors] = useState(true);
   const [showTrajectory, setShowTrajectory] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [isDockCollapsed, setIsDockCollapsed] = useState(false);
+  const [isTopBarCollapsed, setIsTopBarCollapsed] = useState(false);
   const [isVerificationOpen, setIsVerificationOpen] = useState(false);
   const [isTourOpen, setIsTourOpen] = useState(false);
   const [tourChapterIndex, setTourChapterIndex] = useState(0);
@@ -39,6 +42,7 @@ export default function App() {
   const disturbanceFiredRef = useRef(false);
   const [webglError, setWebglError] = useState<string | null>(null);
   const [webglCanvas, setWebglCanvas] = useState<HTMLCanvasElement | null>(null);
+  const [frameRocketToken, setFrameRocketToken] = useState(0);
 
   const [config, setConfig] = useState<SimulationConfig>({ ...DEFAULT_SIM_CONFIG });
   const [params, setParams] = useState<RocketParams>({ ...DEFAULT_ROCKET_PARAMS });
@@ -144,6 +148,17 @@ export default function App() {
         flightMode: 'ascent',
       };
       nextCamera = 'side';
+    } else if (chapter.id === 'free_cam_grab') {
+      nextConfig = {
+        ...DEFAULT_SIM_CONFIG,
+        flightMode: 'landing',
+        initialAltitude: 100,
+        initialOffsetX: 10,
+        initialOffsetZ: -6,
+        initialVy: -4,
+        initialTiltDeg: 6,
+      };
+      nextCamera = 'free';
     }
 
     setEnv(nextEnv);
@@ -157,6 +172,9 @@ export default function App() {
     simulatorRef.current.env = nextEnv;
     simulatorRef.current.params = nextParams;
     simulatorRef.current.reset(nextConfig);
+    if (chapter.id === 'free_cam_grab') {
+      setFrameRocketToken((t) => t + 1);
+    }
     setTelemetry(simulatorRef.current.getTelemetry());
     setIsPlaying(true);
   }, []);
@@ -170,19 +188,30 @@ export default function App() {
     }
   };
 
-  // Keyboard shortcuts: H to collapse dock, Space to play/pause, R to reset, WASD/Shift/Ctrl for manual flight
+  // Keyboard shortcuts: H to collapse dock, P (or Space outside Free Cam) to play/pause, R to reset, WASD/Shift/Ctrl for manual flight
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      const inFreeCam = cameraPresetRef.current === 'free';
+
       if (e.key === 'h' || e.key === 'H') {
         setIsDockCollapsed((v) => !v);
-      } else if (e.code === 'Space') {
-        e.preventDefault();
+      } else if (e.key === 'p' || e.key === 'P') {
         setIsPlaying((p) => !p);
+      } else if (e.code === 'Space') {
+        if (inFreeCam) {
+          e.preventDefault();
+          if (document.activeElement instanceof HTMLButtonElement) {
+            document.activeElement.blur();
+          }
+        } else {
+          e.preventDefault();
+          setIsPlaying((p) => !p);
+        }
       } else if (e.key === 'r' || e.key === 'R') {
         simulatorRef.current.reset();
         setTelemetry(simulatorRef.current.getTelemetry());
-      } else if (simulatorRef.current.config.flightMode === 'manual') {
+      } else if (simulatorRef.current.config.flightMode === 'manual' && !inFreeCam) {
         const patch: Partial<ManualInputs> = {};
         if (e.key === 'w' || e.key === 'W') patch.pitch = 0.6;
         if (e.key === 's' || e.key === 'S') patch.pitch = -0.6;
@@ -205,7 +234,10 @@ export default function App() {
     };
 
     const onKeyUp = (e: KeyboardEvent) => {
-      if (simulatorRef.current.config.flightMode !== 'manual') return;
+      if (cameraPresetRef.current === 'free' && e.code === 'Space') {
+        e.preventDefault();
+      }
+      if (simulatorRef.current.config.flightMode !== 'manual' || cameraPresetRef.current === 'free') return;
       const patch: Partial<ManualInputs> = {};
       if (e.key === 'w' || e.key === 'W' || e.key === 's' || e.key === 'S') patch.pitch = 0;
       if (e.key === 'a' || e.key === 'A' || e.key === 'd' || e.key === 'D') patch.yaw = 0;
@@ -387,6 +419,7 @@ export default function App() {
           onTargetChanged={handleTargetChanged}
           onWebglError={handleWebglError}
           onCanvasReady={setWebglCanvas}
+          frameRocketToken={frameRocketToken}
         />
       )}
 
@@ -395,6 +428,8 @@ export default function App() {
         telemetry={telemetry}
         cameraPreset={cameraPreset}
         isTourOpen={isTourOpen}
+        isCollapsed={isTopBarCollapsed}
+        onToggleCollapse={() => setIsTopBarCollapsed((v) => !v)}
         onSelectCameraPreset={setCameraPreset}
         onOpenTour={handleOpenTour}
         onOpenVerification={() => setIsVerificationOpen(true)}
@@ -403,13 +438,16 @@ export default function App() {
       {/* Interactive How It Works 3D Demo Tour */}
       <HowItWorksTour
         isOpen={isTourOpen}
+        isTopBarCollapsed={isTopBarCollapsed}
         chapterIndex={tourChapterIndex}
         telemetry={telemetry}
         disturbanceFired={disturbanceFired}
+        interactionMode={interactionMode}
         isRecording={isRecording}
         recordSeconds={recordSeconds}
         onSelectChapter={applyTourChapter}
         onReplayChapter={() => applyTourChapter(tourChapterIndex)}
+        onChangeInteractionMode={setInteractionMode}
         onToggleRecord={toggleRecording}
         onClose={() => setIsTourOpen(false)}
       />
@@ -438,6 +476,7 @@ export default function App() {
         manualInputs={manualInputs}
         telemetry={telemetry}
         interactionMode={interactionMode}
+        cameraPreset={cameraPreset}
         showVectors={showVectors}
         showTrajectory={showTrajectory}
         soundEnabled={soundEnabled}

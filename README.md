@@ -111,5 +111,6 @@ Validates:
 
 - **How It Works Tour**: Click **How It Works** in the top HUD to step through 4 live 3D physics demonstrations (Hover-Slam TVC, Mid-Air Disturbance Recovery, Ballistic Crash & Debris, and Gravity-Turn Ascent).
 - **Record 3D Demo Videos (`.webm`)**: Click **Record** in the bottom dock (or inside the tour) to capture 60 fps footage directly from the WebGL viewport and download an `.webm` clip you can embed in pull requests or `README.md`.
-- **Touchable 3D Interactions**: Switch between **Camera Orbit**, **Grab Rocket** (drag in 3D space), **Impulse Poke** (tap/drag to apply disturbance forces & torques), and **Set Target** (click desert terrain to relocate the landing pad).
-- **Keyboard Shortcuts**: `Space` play/pause · `R` reset · `H` collapse/expand control dock · `W/A/S/D` + `Shift/Ctrl` in Manual Sandbox mode.
+- **Free Cam (`Free` preset)**: Fly anywhere with `WASD` (or Arrow keys), `Space` (up), `Shift` (down), drag to rotate the camera view from any angle, and scroll to zoom.
+- **Touchable 3D Interactions**: Switch between **Camera Orbit**, **Grab Rocket** (strictly grabs and repositions the rocket in 3D space), **Impulse Poke** (tap/drag to apply disturbance forces & torques), and **Set Target** (click desert terrain to relocate the landing pad).
+- **Keyboard Shortcuts**: `P` (or `Space` outside Free Cam) play/pause · `R` reset · `H` collapse/expand control dock · `W/A/S/D` + `Shift/Ctrl` in Manual Sandbox mode.

@@ -1,8 +1,19 @@
-import { ChevronLeft, ChevronRight, Film, RotateCcw, Square, Video, X } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Film,
+  Hand,
+  Orbit,
+  RotateCcw,
+  Square,
+  Video,
+  X,
+} from 'lucide-react';
 import type { TelemetrySnapshot } from '../physics/types';
+import type { InteractionMode } from './types';
 
 export interface TourChapter {
-  id: 'hover_slam' | 'pid_recovery' | 'crash_physics' | 'gravity_turn';
+  id: 'hover_slam' | 'pid_recovery' | 'crash_physics' | 'gravity_turn' | 'free_cam_grab';
   title: string;
   subtitle: string;
   description: string;
@@ -47,30 +58,45 @@ export const TOUR_CHAPTERS: TourChapter[] = [
     equation: 'Δv = v_e ln(m₀ / m_dry)   |   dm/dt = -throttle · ṁ_max',
     watchFor: 'Watch the orange trajectory arc bend downrange as velocity builds and propellant drops.',
   },
+  {
+    id: 'free_cam_grab',
+    title: '5. Free Cam & Grab Rocket Sandbox',
+    subtitle: 'WASD + Space/Shift Flight · 3D Rocket Manipulation',
+    description:
+      'Fly anywhere around the test range using WASD, Space (up), and Shift (down) while dragging to rotate the camera view. Switch to Grab Rocket to pick up and move only the rocket in 3D space.',
+    equation: 'WASD: Fly  |  Space / Shift: Up / Down  |  Drag: Rotate  |  Grab: Move Rocket',
+    watchFor: 'Click Grab Rocket below (or in the dock) to drag the booster mid-air, then release to test recovery.',
+  },
 ];
 
 interface HowItWorksTourProps {
   isOpen: boolean;
+  isTopBarCollapsed: boolean;
   chapterIndex: number;
   telemetry: TelemetrySnapshot;
   disturbanceFired: boolean;
+  interactionMode: InteractionMode;
   isRecording: boolean;
   recordSeconds: number;
   onSelectChapter: (index: number) => void;
   onReplayChapter: () => void;
+  onChangeInteractionMode: (mode: InteractionMode) => void;
   onToggleRecord: () => void;
   onClose: () => void;
 }
 
 export function HowItWorksTour({
   isOpen,
+  isTopBarCollapsed,
   chapterIndex,
   telemetry,
   disturbanceFired,
+  interactionMode,
   isRecording,
   recordSeconds,
   onSelectChapter,
   onReplayChapter,
+  onChangeInteractionMode,
   onToggleRecord,
   onClose,
 }: HowItWorksTourProps) {
@@ -91,7 +117,9 @@ export function HowItWorksTour({
   return (
     <aside
       aria-label="How It Works Interactive Physics Tour"
-      className="fixed left-3 sm:left-4 top-[148px] lg:top-[128px] z-20 w-[min(380px,calc(100vw-24px))] rounded-xl border border-slate-700/90 bg-slate-950/92 p-3.5 text-slate-100 shadow-2xl"
+      className={`fixed left-3 sm:left-4 z-20 w-[min(385px,calc(100vw-24px))] rounded-xl border border-slate-700/90 bg-slate-950/92 p-3.5 text-slate-100 shadow-2xl ${
+        isTopBarCollapsed ? 'top-12' : 'top-[148px] lg:top-[128px]'
+      }`}
     >
       {/* Header */}
       <div className="flex items-start justify-between gap-2">
@@ -119,7 +147,7 @@ export function HowItWorksTour({
       </div>
 
       {/* Chapter Segmented Progress */}
-      <div className="mt-2.5 grid grid-cols-4 gap-1">
+      <div className="mt-2.5 grid grid-cols-5 gap-1">
         {TOUR_CHAPTERS.map((c, idx) => (
           <button
             key={c.id}
@@ -150,7 +178,37 @@ export function HowItWorksTour({
         <span className="font-semibold text-slate-200">Cue:</span> {chapter.watchFor}
       </p>
 
-      {/* Live Event Callout for Chapter 2 or Telemetry Snapshot */}
+      {/* Quick toggle inside Chapter 5 for Free Cam Look vs Grab Rocket */}
+      {chapter.id === 'free_cam_grab' && (
+        <div className="mt-2.5 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onChangeInteractionMode('orbit')}
+            className={`flex flex-1 items-center justify-center gap-1.5 min-h-[34px] px-2.5 py-1 text-xs font-semibold rounded-lg border cursor-pointer ${
+              interactionMode === 'orbit'
+                ? 'border-sky-400 bg-sky-500/20 text-sky-300'
+                : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800'
+            }`}
+          >
+            <Orbit className="w-3.5 h-3.5" />
+            <span>Free Cam Look</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onChangeInteractionMode('grab')}
+            className={`flex flex-1 items-center justify-center gap-1.5 min-h-[34px] px-2.5 py-1 text-xs font-semibold rounded-lg border cursor-pointer ${
+              interactionMode === 'grab'
+                ? 'border-emerald-400 bg-emerald-500/20 text-emerald-300'
+                : 'border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800'
+            }`}
+          >
+            <Hand className="w-3.5 h-3.5" />
+            <span>Grab Rocket</span>
+          </button>
+        </div>
+      )}
+
+      {/* Live Event Callout or Telemetry Snapshot */}
       <div className="mt-2.5 flex items-center justify-between gap-2 rounded-lg border border-slate-800/90 bg-slate-900/70 px-2.5 py-1.5 text-[11px] font-mono-tabular">
         {chapter.id === 'pid_recovery' ? (
           <span className={disturbanceFired ? 'text-amber-300 font-semibold' : 'text-slate-400'}>

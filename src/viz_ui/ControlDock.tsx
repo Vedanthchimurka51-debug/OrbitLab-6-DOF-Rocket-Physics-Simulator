@@ -28,7 +28,7 @@ import type {
   SimulationConfig,
   TelemetrySnapshot,
 } from '../physics/types';
-import type { InteractionMode } from './types';
+import type { CameraPreset, InteractionMode } from './types';
 
 export type PhysicsPresetId =
   | 'earth_landing'
@@ -46,6 +46,7 @@ interface ControlDockProps {
   manualInputs: ManualInputs;
   telemetry: TelemetrySnapshot;
   interactionMode: InteractionMode;
+  cameraPreset: CameraPreset;
   showVectors: boolean;
   showTrajectory: boolean;
   soundEnabled: boolean;
@@ -107,6 +108,7 @@ export function ControlDock({
   manualInputs,
   telemetry,
   interactionMode,
+  cameraPreset,
   showVectors,
   showTrajectory,
   soundEnabled,
@@ -136,7 +138,11 @@ export function ControlDock({
   const exhaustVel = getExhaustVelocity(params, env);
   const maxThrustKn = getMaxThrust(params, env) / 1000;
   const activeHint =
-    INTERACTION_MODES.find((m) => m.id === interactionMode)?.hint ?? '';
+    interactionMode === 'orbit' && cameraPreset === 'free'
+      ? 'Free Cam: WASD move · Space/Shift up/down · Drag to rotate'
+      : interactionMode === 'grab'
+        ? 'Grab-only mode: drag rocket to reposition in 3D space'
+        : (INTERACTION_MODES.find((m) => m.id === interactionMode)?.hint ?? '');
 
   const totalEnergyMJ = (telemetry.kineticEnergyJ + telemetry.potentialEnergyJ) / 1e6;
 

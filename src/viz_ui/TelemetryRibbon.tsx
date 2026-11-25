@@ -1,4 +1,4 @@
-import { CheckSquare, Film } from 'lucide-react';
+import { CheckSquare, ChevronDown, ChevronUp, Film } from 'lucide-react';
 import type { TelemetrySnapshot, TouchdownStatus } from '../physics/types';
 import type { CameraPreset } from './types';
 
@@ -6,6 +6,8 @@ interface TelemetryRibbonProps {
   telemetry: TelemetrySnapshot;
   cameraPreset: CameraPreset;
   isTourOpen: boolean;
+  isCollapsed: boolean;
+  onToggleCollapse: () => void;
   onSelectCameraPreset: (preset: CameraPreset) => void;
   onOpenTour: () => void;
   onOpenVerification: () => void;
@@ -33,16 +35,34 @@ export function TelemetryRibbon({
   telemetry,
   cameraPreset,
   isTourOpen,
+  isCollapsed,
+  onToggleCollapse,
   onSelectCameraPreset,
   onOpenTour,
   onOpenVerification,
 }: TelemetryRibbonProps) {
   const statusInfo = STATUS_META[telemetry.touchdownStatus];
 
+  if (isCollapsed) {
+    return (
+      <header className="pointer-events-none fixed inset-x-0 top-0 z-20 flex justify-center px-3">
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          aria-label="Show OrbitLab 6-DOF Header"
+          className="pointer-events-auto flex items-center gap-2 rounded-b-lg border border-t-0 border-slate-700/80 bg-slate-950/92 px-3.5 py-1.5 text-xs font-semibold text-slate-200 hover:text-white transition-colors shadow-lg cursor-pointer"
+        >
+          <ChevronDown className="w-3.5 h-3.5 text-sky-400" />
+          <span>Show OrbitLab 6-DOF</span>
+        </button>
+      </header>
+    );
+  }
+
   return (
     <header className="pointer-events-none fixed inset-x-0 top-0 z-20 p-3 sm:p-4">
       <div className="pointer-events-auto mx-auto flex max-w-[1400px] flex-col gap-2 rounded-xl border border-slate-700/80 bg-slate-950/92 px-4 py-2.5 text-slate-100 shadow-lg">
-        {/* Top Row: Brand, Status, Camera Presets, Verification */}
+        {/* Top Row: Brand, Status, Camera Presets, Verification, Hide */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <span className="text-base font-bold tracking-tight text-white whitespace-nowrap shrink-0">
@@ -121,6 +141,17 @@ export function TelemetryRibbon({
             >
               <CheckSquare className="w-3.5 h-3.5 text-sky-400" />
               <span>Verify Physics</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              title="Hide OrbitLab 6-DOF Header"
+              aria-label="Hide OrbitLab 6-DOF Header"
+              className="flex items-center gap-1 min-h-[40px] px-2.5 py-1.5 text-xs font-medium rounded-lg border border-slate-700 bg-slate-900 text-slate-300 hover:bg-slate-800 hover:text-white transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <ChevronUp className="w-3.5 h-3.5 text-sky-400" />
+              <span>Hide</span>
             </button>
           </div>
         </div>

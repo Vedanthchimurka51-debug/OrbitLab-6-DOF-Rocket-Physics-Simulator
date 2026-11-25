@@ -227,7 +227,7 @@ export function createRocketMesh(
   }
 
   // 9. Simplified Raycasting Collision Proxy (Layer 1)
-  const proxyGeo = new THREE.CylinderGeometry(r * 1.45, r * 1.45, h + 2.4, 12);
+  const proxyGeo = new THREE.CylinderGeometry(r * 2.4, r * 2.4, h + 3.6, 14);
   const proxyMat = new THREE.MeshBasicMaterial({ visible: false });
   geometries.push(proxyGeo);
   materials.push(proxyMat);
