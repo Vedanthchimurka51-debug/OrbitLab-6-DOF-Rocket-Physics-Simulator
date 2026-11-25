@@ -58,14 +58,19 @@ All quantities use strict **SI units** (`kg`, `m`, `s`, `N`, `rad`, `Pa`, `kg/mÂ
 
 ## Getting Started
 
-### Install & Run Locally
+### Install & Run Locally (Requires Node.js >= 20)
 
 ```bash
 npm install
 npm start
 ```
 
-Open `http://localhost:3000` in your browser (or use `npm run dev`).
+This starts Vite and opens `http://localhost:3000` in your browser.
+
+> **Windows PowerShell note:** If PowerShell displays *"running scripts is disabled on this system"*, either run in **Command Prompt (`cmd`)**, use `npm.cmd install && npm.cmd start`, or enable local scripts once in PowerShell:
+> ```powershell
+> Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+> ```
 
 ### Build & Type-Check
 
@@ -73,6 +78,13 @@ Open `http://localhost:3000` in your browser (or use `npm run dev`).
 npm run lint
 npm run build
 ```
+
+### Deploy to Netlify
+
+This repository includes `netlify.toml` preconfigured with `npm run build` and `dist/` publishing:
+1. Push this project to GitHub (or upload the files via GitHub web upload).
+2. On Netlify, choose **Add new site -> Import an existing project -> GitHub** and select the repository.
+3. Click **Deploy site** â€” Netlify builds and hosts the live 3D simulator automatically.
 
 ### Run Headless Physics Verification Suite
 
