@@ -72,7 +72,7 @@ npm install
 npm start
 ```
 
-This starts Vite and opens `http://localhost:3000` in your browser.
+Open `http://localhost:3000` in your browser.
 
 > **Windows PowerShell note:** If PowerShell displays *"running scripts is disabled on this system"*, either run in **Command Prompt (`cmd`)**, use `npm.cmd install && npm.cmd start`, or enable local scripts once in PowerShell:
 > ```powershell
