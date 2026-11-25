@@ -1,3 +1,4 @@
+
 # OrbitLab 6-DOF — Computational Rocket Physics & Propulsive Landing Simulator
 
 An interactive, deterministic 6-DOF rigid-body rocket flight simulator built with **TypeScript**, **Three.js**, and **React**. The computational physics engine (`src/physics/`) is strictly decoupled from rendering and UI layers, uses SI units throughout, and can be executed and verified headlessly from the command line.
